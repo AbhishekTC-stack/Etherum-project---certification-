@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Certificate Verification System</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Certificate Verification System</h1>
+  <p>Powered by Ethereum Smart Contracts (Sepolia Testnet)</p>
+</header>
+<nav>
+  <a class="active" href="index.html">Home</a>
+  <a href="verify.html">Verify Certificate</a>
+  <a href="admin.html">Admin Login</a>
+</nav>
+
+<main>
+  <div class="grid2">
+    <div class="card home-card">
+      <h2>Verify a Certificate</h2>
+      <p>Anyone, anywhere can check if a certificate is genuine. No login and no wallet needed.</p>
+      <a class="btn" href="verify.html">Go to Verification</a>
+    </div>
+    <div class="card home-card">
+      <h2>Admin Login</h2>
+      <p>Only the institution's wallet can sign in and issue new certificates.</p>
+      <a class="btn" href="admin.html">Go to Admin Login</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>How it works</h2>
+    <p class="small" style="font-size:14px; line-height:1.8;">
+      1. The institution (admin) signs in with its wallet and issues a certificate.<br>
+      2. The certificate record is stored permanently on the Ethereum blockchain.<br>
+      3. Anyone can verify it using the certificate ID. The result comes straight from the blockchain, so it cannot be faked or edited later.
+    </p>
+  </div>
+</main>
+</body>
+</html>

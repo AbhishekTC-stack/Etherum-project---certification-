@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verify Certificate</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+</head>
+<body>
+<header>
+  <h1>Certificate Verification</h1>
+  <p>Check a certificate directly against the Ethereum blockchain</p>
+</header>
+<nav>
+  <a href="index.html">Home</a>
+  <a class="active" href="verify.html">Verify Certificate</a>
+  <a href="admin.html">Admin Login</a>
+</nav>
+
+<main>
+  <div class="card">
+    <h2>Verify Certificate <span class="badge">Public</span></h2>
+    <label for="verifyId">Certificate ID</label>
+    <input id="verifyId" placeholder="e.g. CERT2026001">
+    <button id="verifyBtn">Verify</button>
+    <div id="verifyResult"></div>
+    <div id="shareBox" class="hidden msg">
+      <span class="small">Share this result:</span><br>
+      <input id="shareLink" readonly style="margin-top:6px;">
+      <button id="copyBtn" class="secondary" type="button">Copy link</button>
+      <span id="copyMsg" class="small"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Why trust this result?</h2>
+    <p class="small" style="font-size:14px; line-height:1.8;">
+      This page does not use any private database. It reads the certificate record straight from a smart contract on the Ethereum blockchain, so the institution cannot quietly change or delete it.<br>
+      Contract: <a class="link" id="contractLink" target="_blank" rel="noopener"></a>
+    </p>
+  </div>
+</main>
+
+<script src="config.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+
+$("contractLink").href = CONFIG.EXPLORER + "/address/" + CONFIG.CONTRACT_ADDRESS;
+$("contractLink").textContent = CONFIG.CONTRACT_ADDRESS;
+
+async function verify(idFromUrl) {
+  const id = (idFromUrl || $("verifyId").value).trim();
+  $("shareBox").classList.add("hidden");
+  if (!id) { $("verifyResult").innerHTML = '<div class="result invalid">Please enter a certificate ID.</div>'; return; }
+  $("verifyResult").innerHTML = '<div class="msg info">Checking the blockchain...</div>';
+  $("verifyBtn").disabled = true;
+  try {
+    const r = await withReader((c) => c.verifyCertificate(id));
+    if (r.valid) {
+      const when = new Date(Number(r.issuedAt) * 1000).toLocaleString();
+      $("verifyResult").innerHTML =
+        '<div class="result valid"><b>&#10004; Valid Certificate</b><br>' +
+        "Certificate ID: " + esc(id) + "<br>" +
+        "Student: " + esc(r.studentName) + "<br>" +
+        "Course: " + esc(r.course) + "<br>" +
+        "Issue Date: " + esc(r.issueDate) + "<br>" +
+        "Recorded on blockchain at: " + esc(when) + "</div>";
+    } else {
+      $("verifyResult").innerHTML =
+        '<div class="result invalid"><b>&#10008; Invalid / Not Found</b><br>No certificate with ID "' + esc(id) + '" exists on the blockchain.</div>';
+    }
+    $("shareLink").value = location.origin + location.pathname + "?id=" + encodeURIComponent(id);
+    $("shareBox").classList.remove("hidden");
+    $("copyMsg").textContent = "";
+  } catch (err) {
+    console.error(err);
+    $("verifyResult").innerHTML = '<div class="result invalid">Could not reach the blockchain. Check your internet and try again.</div>';
+  } finally {
+    $("verifyBtn").disabled = false;
+  }
+}
+
+$("verifyBtn").addEventListener("click", () => verify());
+$("verifyId").addEventListener("keydown", (e) => { if (e.key === "Enter") verify(); });
+$("copyBtn").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("shareLink").value); $("copyMsg").textContent = "Copied!"; }
+  catch (e) { $("shareLink").select(); $("copyMsg").textContent = "Press Ctrl+C to copy."; }
+});
+
+// Support links like verify.html?id=CERT001
+const qid = new URLSearchParams(location.search).get("id");
+if (qid) { $("verifyId").value = qid; verify(qid); }
+</script>
+</body>
+</html>

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin Login</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+</head>
+<body>
+<header>
+  <h1>Admin Portal</h1>
+  <p>Only the institution's wallet can sign in and issue certificates</p>
+</header>
+<nav>
+  <a href="index.html">Home</a>
+  <a href="verify.html">Verify Certificate</a>
+  <a class="active" href="admin.html">Admin Login</a>
+</nav>
+
+<main>
+  <!-- LOGIN -->
+  <div class="card" id="loginCard">
+    <h2>Admin Login</h2>
+    <p class="small" style="font-size:14px; line-height:1.7;">
+      There is no password. You prove you are the admin by signing a message with the institution's MetaMask wallet. Signing is free and sends no transaction.
+    </p>
+    <button id="loginBtn">Connect MetaMask &amp; Sign In</button>
+    <div id="loginMsg" class="msg"></div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="dashboard" class="hidden">
+    <div class="card">
+      <div class="row">
+        <div>
+          <h2 style="margin-bottom:6px;">Admin Dashboard <span class="badge">Signed in</span></h2>
+          <div class="small">Wallet: <b id="adminAddr"></b></div>
+        </div>
+        <button id="logoutBtn" class="danger">Logout</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Issue Certificate</h2>
+      <label for="certId">Certificate ID</label>
+      <input id="certId" placeholder="e.g. CERT2026001">
+      <label for="studentName">Student Name</label>
+      <input id="studentName" placeholder="e.g. Anjali Menon">
+      <label for="course">Course</label>
+      <input id="course" placeholder="e.g. B.Tech Computer Science">
+      <label for="issueDate">Issue Date</label>
+      <input id="issueDate" type="date">
+      <button id="issueBtn">Issue Certificate</button>
+      <div id="status" class="msg"></div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <h2 style="margin:0;">Issued Certificates <span id="countBadge" class="badge">0</span></h2>
+        <button id="refreshBtn" class="secondary">Refresh</button>
+      </div>
+      <div id="listMsg" class="msg info"></div>
+      <div style="overflow-x:auto; margin-top:10px;">
+        <table id="certTable" class="hidden">
+          <thead><tr><th>Certificate ID</th><th>Student</th><th>Course</th><th>Recorded</th><th>Transaction</th></tr></thead>
+          <tbody id="certBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="config.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let provider, signer, contract, adminAddress;
+
+function setMsg(el, msg, cls) { el.className = "msg " + (cls || "info"); el.textContent = msg; }
+function sessionGet() { try { return sessionStorage.getItem("adminAddr"); } catch (e) { return null; } }
+function sessionSet(v) { try { v ? sessionStorage.setItem("adminAddr", v) : sessionStorage.removeItem("adminAddr"); } catch (e) {} }
+
+async function setupWallet() {
+  if (!window.ethereum) throw new Error("MetaMask not found. Install the MetaMask extension.");
+  provider = new ethers.BrowserProvider(window.ethereum);
+  signer = await provider.getSigner();
+  contract = new ethers.Contract(CONFIG.CONTRACT_ADDRESS, CONFIG.ABI, signer);
+  return (await signer.getAddress());
+}
+
+async function ensureSepolia() {
+  try {
+    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: CONFIG.CHAIN_ID_HEX }] });
+  } catch (e) {
+    throw new Error("Please switch MetaMask to the Sepolia test network.");
+  }
+}
+
+function showDashboard(addr) {
+  adminAddress = addr;
+  $("adminAddr").textContent = addr;
+  $("loginCard").classList.add("hidden");
+  $("dashboard").classList.remove("hidden");
+  loadList();
+}
+
+function showLogin(message, cls) {
+  $("dashboard").classList.add("hidden");
+  $("loginCard").classList.remove("hidden");
+  setMsg($("loginMsg"), message || "", cls);
+  $("loginBtn").disabled = false;
+}
+
+async function login() {
+  $("loginBtn").disabled = true;
+  setMsg($("loginMsg"), "Connecting to MetaMask...", "info");
+  try {
+    if (!window.ethereum) throw new Error("MetaMask not found. Install the MetaMask extension.");
+    await window.ethereum.request({ method: "eth_requestAccounts" });
+    await ensureSepolia();
+    const addr = await setupWallet();
+    const owner = await contract.owner();
+    if (owner.toLowerCase() !== addr.toLowerCase()) {
+      sessionSet(null);
+      showLogin("Access denied. This wallet (" + addr + ") is not the admin wallet.", "bad");
+      return;
+    }
+    setMsg($("loginMsg"), "Please sign the login message in MetaMask...", "info");
+    const message = "Admin login to Certificate Verification System\nWallet: " + addr + "\nTime: " + new Date().toISOString();
+    const signature = await signer.signMessage(message);
+    const recovered = ethers.verifyMessage(message, signature);
+    if (recovered.toLowerCase() !== owner.toLowerCase()) throw new Error("Signature check failed.");
+    sessionSet(addr);
+    showDashboard(addr);
+  } catch (err) {
+    console.error(err);
+    showLogin("Login failed: " + (err.shortMessage || err.message), "bad");
+  }
+}
+
+function logout() {
+  sessionSet(null);
+  adminAddress = null;
+  ["certId", "studentName", "course", "issueDate"].forEach(f => $(f).value = "");
+  setMsg($("status"), "", "info");
+  showLogin("You have been logged out.", "info");
+}
+
+async function issueCertificate() {
+  const id = $("certId").value.trim();
+  const name = $("studentName").value.trim();
+  const course = $("course").value.trim();
+  const date = $("issueDate").value;
+  if (!id || !name || !course || !date) { setMsg($("status"), "Please fill in all fields.", "bad"); return; }
+  try {
+    $("issueBtn").disabled = true;
+    setMsg($("status"), "Waiting for MetaMask confirmation...", "info");
+    const tx = await contract.issueCertificate(id, name, course, date);
+    setMsg($("status"), "Transaction sent. Waiting for confirmation... " + tx.hash, "info");
+    await tx.wait();
+    setMsg($("status"), "Certificate issued successfully! Tx: " + tx.hash, "ok");
+    ["certId", "studentName", "course", "issueDate"].forEach(f => $(f).value = "");
+    setTimeout(loadList, 4000); // give the public node a moment to catch up
+  } catch (err) {
+    console.error(err);
+    setMsg($("status"), "Failed: " + (err.reason || err.shortMessage || err.message), "bad");
+  } finally {
+    $("issueBtn").disabled = false;
+  }
+}
+
+async function loadList() {
+  setMsg($("listMsg"), "Loading certificates from the blockchain...", "info");
+  $("certTable").classList.add("hidden");
+  try {
+    const events = await withReader(async (c, p) => {
+      const latest = await p.getBlockNumber();
+      const starts = [CONFIG.DEPLOY_BLOCK, Math.max(0, latest - 45000), Math.max(0, latest - 9000)];
+      let lastErr;
+      for (const from of starts) {
+        try { return await c.queryFilter(c.filters.CertificateIssued(), from, "latest"); }
+        catch (e) { lastErr = e; }
+      }
+      throw lastErr;
+    });
+    const body = $("certBody");
+    body.innerHTML = "";
+    events.slice().reverse().forEach(ev => {
+      const a = ev.args;
+      const tr = document.createElement("tr");
+      const cells = [a[0], a[1], a[2], new Date(Number(a[3]) * 1000).toLocaleString()];
+      cells.forEach(v => { const td = document.createElement("td"); td.textContent = v; tr.appendChild(td); });
+      const td = document.createElement("td");
+      const link = document.createElement("a");
+      link.className = "link"; link.target = "_blank"; link.rel = "noopener";
+      link.href = CONFIG.EXPLORER + "/tx/" + ev.transactionHash;
+      link.textContent = ev.transactionHash.slice(0, 10) + "...";
+      td.appendChild(link); tr.appendChild(td);
+      body.appendChild(tr);
+    });
+    $("countBadge").textContent = events.length;
+    if (events.length) { $("certTable").classList.remove("hidden"); setMsg($("listMsg"), "", "info"); }
+    else setMsg($("listMsg"), "No certificates issued yet.", "info");
+  } catch (err) {
+    console.error(err);
+    setMsg($("listMsg"), "Could not load the list. Tap Refresh to try again.", "bad");
+  }
+}
+
+$("loginBtn").addEventListener("click", login);
+$("logoutBtn").addEventListener("click", logout);
+$("issueBtn").addEventListener("click", issueCertificate);
+$("refreshBtn").addEventListener("click", loadList);
+
+// If the wallet switches account while signed in, sign out for safety
+if (window.ethereum && window.ethereum.on) {
+  window.ethereum.on("accountsChanged", (accs) => {
+    if (adminAddress && (!accs.length || accs[0].toLowerCase() !== adminAddress.toLowerCase())) logout();
+  });
+}
+
+// Restore the session after a page refresh (no pop-up needed if MetaMask still allows the site)
+(async function restore() {
+  const saved = sessionGet();
+  if (!saved || !window.ethereum) return;
+  try {
+    const accs = await window.ethereum.request({ method: "eth_accounts" });
+    if (accs.length && accs[0].toLowerCase() === saved.toLowerCase()) {
+      const addr = await setupWallet();
+      const owner = await contract.owner();
+      if (owner.toLowerCase() === addr.toLowerCase()) { showDashboard(addr); return; }
+    }
+  } catch (e) { console.error(e); }
+  sessionSet(null);
+})();
+</script>
+</body>
+</html>
